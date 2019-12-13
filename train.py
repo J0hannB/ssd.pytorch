@@ -15,6 +15,7 @@ import torch.utils.data as data
 import numpy as np
 import argparse
 
+VOC_ROOT = ''
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -23,8 +24,8 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
-parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO'],
-                    type=str, help='VOC or COCO')
+parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'CUSTOM'],
+                    type=str, help='VOC, COCO or CUSTOM')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
                     help='Dataset root directory path')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
@@ -51,6 +52,8 @@ parser.add_argument('--visdom', default=False, type=str2bool,
                     help='Use visdom for loss visualization')
 parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
+parser.add_argument('--random_weights', default=False, type=bool,
+                    help='Start with random weights')
 args = parser.parse_args()
 
 
@@ -88,6 +91,16 @@ def train():
                                transform=SSDAugmentation(cfg['min_dim'],
                                                          MEANS))
 
+    elif args.dataset == 'CUSTOM':
+        if args.dataset_root == VOC_ROOT:
+            parser.error('Must specify dataset_root for custom datasets')
+        cfg = custom
+        dataset = CustomDetection(root=args.dataset_root,
+                                transform=SSDAugmentation(cfg['min_dim'], 
+                                                         MEANS))
+
+
+
     if args.visdom:
         import visdom
         viz = visdom.Visdom()
@@ -102,6 +115,8 @@ def train():
     if args.resume:
         print('Resuming training, loading {}...'.format(args.resume))
         ssd_net.load_weights(args.resume)
+    elif args.random_weights:
+        pass
     else:
         vgg_weights = torch.load(args.save_folder + args.basenet)
         print('Loading base network...')
@@ -162,33 +177,42 @@ def train():
             adjust_learning_rate(optimizer, args.gamma, step_index)
 
         # load train data
-        images, targets = next(batch_iterator)
-
+        try:
+            images, targets = next(batch_iterator)
+        except StopIteration:
+            batch_iterator = iter(data_loader)
+            images, targets = next(batch_iterator)
+            
         if args.cuda:
             images = Variable(images.cuda())
-            targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
+            with torch.no_grad():
+                targets = [Variable(ann.cuda()) for ann in targets]
         else:
             images = Variable(images)
-            targets = [Variable(ann, volatile=True) for ann in targets]
+            with torch.no_grad():
+                targets = [Variable(ann) for ann in targets]
         # forward
         t0 = time.time()
         out = net(images)
         # backprop
         optimizer.zero_grad()
+
         loss_l, loss_c = criterion(out, targets)
+        print(loss_l)
+        print(loss_c)
         loss = loss_l + loss_c
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.data[0]
-        conf_loss += loss_c.data[0]
+        loc_loss += loss_l.item()
+        conf_loss += loss_c.item()
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]), end=' ')
+            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
 
         if args.visdom:
-            update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
+            update_vis_plot(iteration, loss_l.item(), loss_c.item(),
                             iter_plot, epoch_plot, 'append')
 
         if iteration != 0 and iteration % 5000 == 0:
