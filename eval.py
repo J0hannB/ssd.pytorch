@@ -9,8 +9,8 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-from data import VOC_ROOT, VOCAnnotationTransform, VOCDetection, BaseTransform
-from data import VOC_CLASSES as labelmap
+from data import YoloAnnotationTransform, CustomDetection, BaseTransform
+# from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
 from ssd import build_ssd
@@ -31,6 +31,8 @@ else:
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
+
+VOC_ROOT = ''
 
 
 parser = argparse.ArgumentParser(
@@ -66,10 +68,9 @@ if torch.cuda.is_available():
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
-imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
-                          'Main', '{:s}.txt')
+annopath = os.path.join(args.voc_root, '%s.txt')
+imgpath = os.path.join(args.voc_root, '%s.jpg')
+imgsetpath = os.path.join('/home/jonathan/darknet/grassTestV4/cvg/test-setAside.txt')
 YEAR = '2007'
 devkit_path = args.voc_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
@@ -144,7 +145,7 @@ def get_voc_results_file_template(image_set, cls):
 
 
 def write_voc_results_file(all_boxes, dataset):
-    for cls_ind, cls in enumerate(labelmap):
+    for cls_ind, cls in enumerate(['class 0']):
         print('Writing {:s} VOC results file'.format(cls))
         filename = get_voc_results_file_template(set_type, cls)
         with open(filename, 'wt') as f:
@@ -168,7 +169,7 @@ def do_python_eval(output_dir='output', use_07=True):
     print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
-    for i, cls in enumerate(labelmap):
+    for i, cls in enumerate(['class 0']):
         filename = get_voc_results_file_template(set_type, cls)
         rec, prec, ap = voc_eval(
            filename, annopath, imgsetpath.format(set_type), cls, cachedir,
@@ -368,7 +369,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
     all_boxes = [[[] for _ in range(num_images)]
-                 for _ in range(len(labelmap)+1)]
+                 for _ in range(len(2))
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
@@ -420,7 +421,7 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 if __name__ == '__main__':
     # load net
-    num_classes = len(labelmap) + 1                      # +1 for background
+    num_classes = 2                    # +1 for background
     net = build_ssd('test', 300, num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     net.eval()

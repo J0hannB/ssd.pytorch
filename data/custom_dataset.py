@@ -137,7 +137,6 @@ class CustomDetection(data.Dataset):
 
     def pull_item(self, index):
         img_id = self.ids[index]
-
         # target = ET.parse(self._annopath % img_id).getroot()
         target = list()
         with open(self._annopath % img_id) as annoFile:
@@ -189,7 +188,11 @@ class CustomDetection(data.Dataset):
                 eg: ('001718', [('dog', (96, 13, 438, 332))])
         '''
         img_id = self.ids[index]
-        anno = ET.parse(self._annopath % img_id).getroot()
+        # anno = ET.parse(self._annopath % img_id).getroot()
+        anno = list()
+        with open(self._annopath % img_id) as annoFile:
+            for line in annoFile:
+                anno.append(line)
         gt = self.target_transform(anno, 1, 1)
         return img_id[1], gt
 
