@@ -217,8 +217,8 @@ def train():
 
         if iteration != 0 and iteration % 100 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), 'weights/ssd300_COCO_' +
-                       repr(iteration) + '.pth')
+            torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_' +
+                       repr(iteration) + '.pth'))
     torch.save(ssd_net.state_dict(),
                args.save_folder + '' + args.dataset + '.pth')
 
