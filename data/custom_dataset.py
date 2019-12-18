@@ -56,6 +56,7 @@ class YOLOAnnotationTransform(object):
             resRow.append(clss)
             res.append(resRow)
 
+
         # print(res)
 
         return res # [[xmin, ymin, xmax, ymax, label_ind], ... ]
@@ -115,11 +116,16 @@ class CustomDetection(data.Dataset):
         self._imgpath = osp.join(root, '%s.jpg')
         self.name = 'Custom'
 
+        self.quadrantIdx = 0
+        self.lastImg = None
+
         self.ids = list()
         files = os.listdir(root)
         for file in files:
             if osp.splitext(file)[1] == '.jpg':
                 self.ids.append(osp.splitext(file)[0])
+
+        print(self.ids)
 
         
         # for (year, name) in image_sets:
@@ -142,11 +148,46 @@ class CustomDetection(data.Dataset):
         with open(self._annopath % img_id) as annoFile:
             for line in annoFile:
                 target.append(line)
-        img = cv2.imread(self._imgpath % img_id)
+
+        if self.quadrantIdx == 0:
+            img = cv2.imread(self._imgpath % img_id)
+            self.lastImg = img
+        else:
+            img = self.lastImg
+            
         height, width, channels = img.shape
 
         if self.target_transform is not None:
             target = self.target_transform(target, width, height)
+
+
+        # cv2.imshow("full Image", img)
+
+        # This will not work if num_workers is not 0
+        # print(width//2)
+        # print(height//2)
+        # print(img.shape)
+
+        # print(self.quadrantIdx)
+
+        if self.quadrantIdx == 0:
+            img = img[0:height//2, 0:width//2]
+        if self.quadrantIdx == 1:
+            img = img[0:height//2, width//2:width]
+        if self.quadrantIdx == 2:
+            img = img[height//2:height, 0:width//2]
+        if self.quadrantIdx == 3:
+            img = img[height//2:height, width//2:width]
+
+        # print(img.shape)
+
+        self.quadrantIdx += 1
+        self.quadrantIdx %= 4
+
+        # cv2.imshow("partial image", img)
+        # cv2.waitKey()
+
+
 
         if self.transform is not None:
             target = np.array(target)
@@ -156,9 +197,17 @@ class CustomDetection(data.Dataset):
             # img = img.transpose(2, 0, 1)
             target = np.hstack((boxes, np.expand_dims(labels, axis=1)))
 
+        # print(type(width))
+        # print(type(height))
+
+        # print("updated: " + str(self.quadrantIdx))
+
         # print("target from custom_dataset.py")
         # print(target)
-        return torch.from_numpy(img).permute(2, 0, 1), target, height, width
+
+        im = torch.from_numpy(img).permute(2, 0, 1)
+        # print(im)
+        return im, target, height, width
         # return torch.from_numpy(img), target, height, width
 
     def pull_image(self, index):

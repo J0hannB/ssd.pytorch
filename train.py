@@ -14,6 +14,7 @@ import torch.nn.init as init
 import torch.utils.data as data
 import numpy as np
 import argparse
+import cv2 as cv
 
 VOC_ROOT = ''
 
@@ -36,7 +37,7 @@ parser.add_argument('--resume', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from')
 parser.add_argument('--start_iter', default=0, type=int,
                     help='Resume training at this iter')
-parser.add_argument('--num_workers', default=4, type=int,
+parser.add_argument('--num_workers', default=0, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use CUDA to train model')
@@ -191,6 +192,12 @@ def train():
             images = Variable(images)
             with torch.no_grad():
                 targets = [Variable(ann) for ann in targets]
+
+        # for img in images:
+        #     img = img.numpy().transpose(1,2,0)
+        #     img = img.astype(np.uint8)
+        #     cv.imshow("image", img)
+        #     cv.waitKey()
         # forward
         t0 = time.time()
         out = net(images)

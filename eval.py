@@ -9,7 +9,9 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
-from data import YoloAnnotationTransform, CustomDetection, BaseTransform
+from data import *
+from utils.augmentations import SSDAugmentation, SSDAugmentationLight
+from data import custom as customConfig
 # from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
@@ -70,7 +72,7 @@ else:
 
 annopath = os.path.join(args.voc_root, '%s.txt')
 imgpath = os.path.join(args.voc_root, '%s.jpg')
-imgsetpath = os.path.join('/home/jonathan/darknet/grassTestV4/cvg/test-setAside.txt')
+imgsetpath = os.path.join('/home/jonathan/darknet/grassTestV4/cfg/test-setAside.txt')
 YEAR = '2007'
 devkit_path = args.voc_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
@@ -104,20 +106,43 @@ class Timer(object):
 
 def parse_rec(filename):
     """ Parse a PASCAL VOC xml file """
-    tree = ET.parse(filename)
+    # tree = ET.parse(filename)
     objects = []
-    for obj in tree.findall('object'):
+    print("reading from " + filename)
+    target = []
+
+    transform = YOLOAnnotationTransform()
+    with open(filename) as file:
+        for line in file:
+            target.append(line)
+            # print(line)
+
+    target = transform(target, 1, 1)
+    for row in target:
+        print(row)
+        x1 = int(row[0] * 1368)
+        y1 = int(row[1] * 912)
+        x2 = int(row[2] * 1368)
+        y2 = int(row[3] * 912)
+        label = int(row[4])
         obj_struct = {}
-        obj_struct['name'] = obj.find('name').text
-        obj_struct['pose'] = obj.find('pose').text
-        obj_struct['truncated'] = int(obj.find('truncated').text)
-        obj_struct['difficult'] = int(obj.find('difficult').text)
-        bbox = obj.find('bndbox')
-        obj_struct['bbox'] = [int(bbox.find('xmin').text) - 1,
-                              int(bbox.find('ymin').text) - 1,
-                              int(bbox.find('xmax').text) - 1,
-                              int(bbox.find('ymax').text) - 1]
+        obj_struct['name'] = "Class %d" % label
+        obj_struct['bbox'] = [x1,y1,x2,y2]
+        obj_struct['difficult'] = False
+        # print(obj_struct)
         objects.append(obj_struct)
+    # for obj in tree.findall('object'):
+    #     obj_struct = {}
+    #     obj_struct['name'] = obj.find('name').text
+    #     obj_struct['pose'] = obj.find('pose').text
+    #     obj_struct['truncated'] = int(obj.find('truncated').text)
+    #     obj_struct['difficult'] = int(obj.find('difficult').text)
+    #     bbox = obj.find('bndbox')
+    #     obj_struct['bbox'] = [int(bbox.find('xmin').text) - 1,
+    #                           int(bbox.find('ymin').text) - 1,
+    #                           int(bbox.find('xmax').text) - 1,
+    #                           int(bbox.find('ymax').text) - 1]
+    #     objects.append(obj_struct)
 
     return objects
 
@@ -145,7 +170,7 @@ def get_voc_results_file_template(image_set, cls):
 
 
 def write_voc_results_file(all_boxes, dataset):
-    for cls_ind, cls in enumerate(['class 0']):
+    for cls_ind, cls in enumerate(['Class-0']):
         print('Writing {:s} VOC results file'.format(cls))
         filename = get_voc_results_file_template(set_type, cls)
         with open(filename, 'wt') as f:
@@ -156,7 +181,7 @@ def write_voc_results_file(all_boxes, dataset):
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
                     f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                            format(index[1], dets[k, -1],
+                            format(index, dets[k, -1],
                                    dets[k, 0] + 1, dets[k, 1] + 1,
                                    dets[k, 2] + 1, dets[k, 3] + 1))
 
@@ -169,7 +194,7 @@ def do_python_eval(output_dir='output', use_07=True):
     print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
-    for i, cls in enumerate(['class 0']):
+    for i, cls in enumerate(['Class-0']):
         filename = get_voc_results_file_template(set_type, cls)
         rec, prec, ap = voc_eval(
            filename, annopath, imgsetpath.format(set_type), cls, cachedir,
@@ -267,7 +292,8 @@ cachedir: Directory for caching the annotations
         # load annots
         recs = {}
         for i, imagename in enumerate(imagenames):
-            recs[imagename] = parse_rec(annopath % (imagename))
+            # recs[imagename] = parse_rec(annopath % (imagename))
+            recs[imagename] = parse_rec(os.path.splitext(imagename)[0] + '.txt')
             if i % 100 == 0:
                 print('Reading annotation for {:d}/{:d}'.format(
                    i + 1, len(imagenames)))
@@ -283,15 +309,28 @@ cachedir: Directory for caching the annotations
     # extract gt objects for this class
     class_recs = {}
     npos = 0
+    # print(recs)
     for imagename in imagenames:
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
+        # print(R)
         bbox = np.array([x['bbox'] for x in R])
         difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
         det = [False] * len(R)
         npos = npos + sum(~difficult)
-        class_recs[imagename] = {'bbox': bbox,
+        class_recs[os.path.splitext(os.path.split(imagename)[1])[0]] = {'bbox': bbox,
                                  'difficult': difficult,
                                  'det': det}
+
+        # print(class_recs)
+        # if len(bbox) > 0:
+            # img = cv2.imread(imagename)
+            # for box in bbox:
+            #     print(box)
+            #     cv2.rectangle(img, (box[0], box[1]), (box[2], box[3]), (0, 0, 255), 2)
+            # cv2.imshow(imagename, img)
+            # cv2.waitKey()
+
+    # print(class_recs)
 
     # read dets
     detfile = detpath.format(classname)
@@ -299,24 +338,55 @@ cachedir: Directory for caching the annotations
         lines = f.readlines()
     if any(lines) == 1:
 
+        # print(lines)
         splitlines = [x.strip().split(' ') for x in lines]
+        print(splitlines)
         image_ids = [x[0] for x in splitlines]
         confidence = np.array([float(x[1]) for x in splitlines])
         BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+
+        print(BB)
+        # print(image_ids)
 
         # sort by confidence
         sorted_ind = np.argsort(-confidence)
         sorted_scores = np.sort(-confidence)
         BB = BB[sorted_ind, :]
         image_ids = [image_ids[x] for x in sorted_ind]
+        # print(image_ids)
 
         # go down dets and mark TPs and FPs
         nd = len(image_ids)
         tp = np.zeros(nd)
         fp = np.zeros(nd)
+
+        for imagename in imagenames:
+            image_id = os.path.splitext(os.path.split(imagename)[1])[0]
+            img = cv2.imread(imagename)
+            print(img.shape)
+
+
+            for d in range(nd):
+                # print(image_id)
+                # print(image_ids[d])
+                if image_ids[d] == image_id and confidence[d] > args.confidence_threshold:
+                    bb = BB[d, :]
+                    print(bb)
+                    cv2.rectangle(img, (int(bb[0]), int(bb[1])), (int(bb[2]), int(bb[3])), (0,0,255), 2)
+
+            cv2.imshow("image", img)
+            cv2.waitKey()
+
+
+
         for d in range(nd):
             R = class_recs[image_ids[d]]
+            # print(R)
             bb = BB[d, :].astype(float)
+            # print(bb)
+
+
+
             ovmax = -np.inf
             BBGT = R['bbox'].astype(float)
             if BBGT.size > 0:
@@ -347,13 +417,13 @@ cachedir: Directory for caching the annotations
                 fp[d] = 1.
 
         # compute precision recall
-        fp = np.cumsum(fp)
-        tp = np.cumsum(tp)
-        rec = tp / float(npos)
+        fp = -1 # np.cumsum(fp)
+        tp = -1 #np.cumsum(tp)
+        rec = -1 #tp / float(npos)
         # avoid divide by zero in case the first detection matches a difficult
         # ground truth
-        prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
-        ap = voc_ap(rec, prec, use_07_metric)
+        prec = -1#tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
+        ap = -1 #voc_ap(rec, prec, use_07_metric)
     else:
         rec = -1.
         prec = -1.
@@ -369,7 +439,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     #    all_boxes[cls][image] = N x 5 array of detections in
     #    (x1, y1, x2, y2, score)
     all_boxes = [[[] for _ in range(num_images)]
-                 for _ in range(len(2))
+                 for _ in range(customConfig["num_classes"])]
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
@@ -378,13 +448,35 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     for i in range(num_images):
         im, gt, h, w = dataset.pull_item(i)
+        print(gt)
+
+        print(im.dtype)
+
+        img = im.numpy().transpose(1,2,0)
+        print(img.shape)
+        # print(img)
+        img = np.ascontiguousarray(img, dtype=np.uint8)
+        print(img.shape)
+        cv2.imshow("image", img)
+        cv2.waitKey()
 
         x = Variable(im.unsqueeze(0))
         if args.cuda:
             x = x.cuda()
+        # print(x)
         _t['im_detect'].tic()
         detections = net(x).data
         detect_time = _t['im_detect'].toc(average=False)
+
+
+        print("drawing ground truth")
+
+        for j in range(len(gt)):
+            box = gt[j, 0:4]
+            print(box)
+            cv2.rectangle(img, (int(box[0]*300), int(box[1]*300)), (int(box[2]*300), int(box[3]*300)), (255,0,255), 2)
+
+
 
         # skip j = 0, because it's the background class
         for j in range(1, detections.size(1)):
@@ -402,7 +494,32 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             cls_dets = np.hstack((boxes.cpu().numpy(),
                                   scores[:, np.newaxis])).astype(np.float32,
                                                                  copy=False)
+            print("drawing detections")
+
+            for k in range(boxes.size(1)):
+                box = boxes[k, :]
+                print(box)
+
+                # cv2.rectangle(img, (0, 0), (5, 5), (0,0,255), 2)
+                cv2.rectangle(img, (int(box[0]*300.0/w), int(box[1]*300.0/h)), (int(box[2]*300.0/w), int(box[3]*300.0/h)), (0,0,255), 2)
+
             all_boxes[j][i] = cls_dets
+
+
+            # if image_ids[d] == image_id and confidence[d] > args.confidence_threshold:
+            #     bb = BB[d, :]
+            #     print(bb)
+            #     cv2.rectangle(img, (int(bb[0]), int(bb[1])), (int(bb[2]), int(bb[3])), (0,0,255), 2)
+
+
+        cv2.imshow("image", img)
+        cv2.waitKey()
+      
+        # image_id = os.path.splitext(os.path.split(imagename)[1])[0]
+
+            # print(image_id)
+            # print(image_ids[d])
+
 
         print('im_detect: {:d}/{:d} {:.3f}s'.format(i + 1,
                                                     num_images, detect_time))
@@ -420,16 +537,24 @@ def evaluate_detections(box_list, output_dir, dataset):
 
 
 if __name__ == '__main__':
+    print(args)
     # load net
-    num_classes = 2                    # +1 for background
+    num_classes = customConfig["num_classes"]                   # +1 for background
     net = build_ssd('test', 300, num_classes)            # initialize SSD
-    net.load_state_dict(torch.load(args.trained_model))
+
+    if args.cuda:
+        net.load_state_dict(torch.load(args.trained_model))
+    else:
+        net.load_state_dict(torch.load(args.trained_model, map_location=torch.device('cpu')))
     net.eval()
     print('Finished loading model!')
     # load data
-    dataset = VOCDetection(args.voc_root, [('2007', set_type)],
-                           BaseTransform(300, dataset_mean),
-                           VOCAnnotationTransform())
+    # dataset = VOCDetection(args.voc_root, [('2007', set_type)],
+    #                        BaseTransform(300, dataset_mean),
+    #                        VOCAnnotationTransform())
+
+    dataset = CustomDetection(args.voc_root, transform=SSDAugmentationLight(customConfig['min_dim'], 
+                                                         MEANS))
     if args.cuda:
         net = net.cuda()
         cudnn.benchmark = True
