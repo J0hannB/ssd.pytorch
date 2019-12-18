@@ -117,7 +117,7 @@ class CustomDetection(data.Dataset):
         self.name = 'Custom'
 
         self.quadrantIdx = 0
-        self.lastImg = None
+        self.lastImgIdx= None
 
         self.ids = list()
         files = os.listdir(root)
@@ -142,26 +142,30 @@ class CustomDetection(data.Dataset):
         return len(self.ids)
 
     def pull_item(self, index):
+
+        if self.quadrantIdx == 0:
+            self.lastImgIdx = index
+        else:
+            index = self.lastImgIdx
+
         img_id = self.ids[index]
+
+        print(img_id)
         # target = ET.parse(self._annopath % img_id).getroot()
         target = list()
         with open(self._annopath % img_id) as annoFile:
             for line in annoFile:
                 target.append(line)
 
-        if self.quadrantIdx == 0:
-            img = cv2.imread(self._imgpath % img_id)
-            self.lastImg = img
-        else:
-            img = self.lastImg
-            
+
+        img = cv2.imread(self._imgpath % img_id)
+
         height, width, channels = img.shape
 
         if self.target_transform is not None:
             target = self.target_transform(target, width, height)
 
 
-        # cv2.imshow("full Image", img)
 
         # This will not work if num_workers is not 0
         # print(width//2)
@@ -170,14 +174,75 @@ class CustomDetection(data.Dataset):
 
         # print(self.quadrantIdx)
 
+
         if self.quadrantIdx == 0:
-            img = img[0:height//2, 0:width//2]
+            yMin = 0
+            yMax = height//2
+            xMin = 0
+            xMax = width//2
         if self.quadrantIdx == 1:
-            img = img[0:height//2, width//2:width]
+            yMin = 0
+            yMax = height//2
+            xMin = width//2
+            xMax = width
         if self.quadrantIdx == 2:
-            img = img[height//2:height, 0:width//2]
+            yMin = height//2
+            yMax = height
+            xMin = 0
+            xMax = width//2
         if self.quadrantIdx == 3:
-            img = img[height//2:height, width//2:width]
+            yMin = height//2
+            yMax = height
+            xMin = width//2
+            xMax = width
+
+        # print(img.shape)
+        # print("min/max: (%f, %f) (%f, %f)" % (xMin, yMin, xMax, yMax))
+
+        goodTargets = []
+
+        for i, box in enumerate(target):
+
+            x1 = box[0] * width
+            y1 = box[1] * height
+            x2 = box[2] * width
+            y2 = box[3] * height
+
+            # print(box)
+            # print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
+            if x1 < xMin:
+                if x2 < xMin:
+                    continue
+                x1 = xMin
+            if y1 < yMin:
+                if y2 < yMin:
+                    continue
+                y1 = yMin
+            if x2 > xMax:
+                if x1 > xMax:
+                    continue
+                x2 = xMax
+            if y2 > yMax:
+                if y1 > yMax:
+                    continue
+                y2 = yMax
+
+
+
+            # print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
+            # cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0,0,255), 2)
+            goodTargets.append(box)
+
+        if len(goodTargets) == 0:
+            print("Appending false target to targetless image")
+            goodTargets.append([0.0,0.0,1.0,1.0,0.0])
+            # goodTargets.append([0.0,0.0,0.0,0.0,0.0])
+
+        target = goodTargets
+
+        # cv2.imshow("full Image", img)
+
+        img = img[yMin:yMax, xMin:xMax]
 
         # print(img.shape)
 
@@ -185,6 +250,7 @@ class CustomDetection(data.Dataset):
         self.quadrantIdx %= 4
 
         # cv2.imshow("partial image", img)
+        # cv2.waitKey(1000)
         # cv2.waitKey()
 
 
