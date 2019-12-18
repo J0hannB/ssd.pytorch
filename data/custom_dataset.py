@@ -150,7 +150,7 @@ class CustomDetection(data.Dataset):
 
         img_id = self.ids[index]
 
-        print(img_id)
+        # print(img_id)
         # target = ET.parse(self._annopath % img_id).getroot()
         target = list()
         with open(self._annopath % img_id) as annoFile:
