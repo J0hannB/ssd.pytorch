@@ -234,7 +234,7 @@ class CustomDetection(data.Dataset):
             goodTargets.append(box)
 
         if len(goodTargets) == 0:
-            print("Appending false target to targetless image")
+            # print("Appending false target to targetless image")
             goodTargets.append([0.0,0.0,1.0,1.0,0.0])
             # goodTargets.append([0.0,0.0,0.0,0.0,0.0])
 
