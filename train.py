@@ -205,9 +205,10 @@ def train():
         optimizer.zero_grad()
 
         loss_l, loss_c = criterion(out, targets)
-        print(loss_l)
-        print(loss_c)
+        # print(loss_l)
+        # print(loss_c)
         loss = loss_l + loss_c
+        print(loss)
         loss.backward()
         optimizer.step()
         t1 = time.time()
@@ -222,10 +223,15 @@ def train():
             update_vis_plot(iteration, loss_l.item(), loss_c.item(),
                             iter_plot, epoch_plot, 'append')
 
-        if iteration != 0 and iteration % 100 == 0:
+        if iteration != 0 and iteration % 500 == 0:
             print('Saving state, iter:', iteration)
             torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_' +
                        repr(iteration) + '.pth'))
+
+
+        if iteration != 0 and iteration % 50 == 0:
+            torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_last.pth'))
+
     torch.save(ssd_net.state_dict(),
                args.save_folder + '' + args.dataset + '.pth')
 

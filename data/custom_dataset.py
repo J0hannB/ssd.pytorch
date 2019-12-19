@@ -229,7 +229,7 @@ class CustomDetection(data.Dataset):
 
 
 
-            print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
+            # print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
             box[0] = (x1-xMin) / (xMax-xMin)
             box[1] = (y1-yMin) / (yMax-yMin)
             box[2] = (x2-xMin) / (xMax-xMin)
@@ -257,9 +257,9 @@ class CustomDetection(data.Dataset):
         self.quadrantIdx += 1
         self.quadrantIdx %= 4
 
-        cv2.imshow("partial image", img)
-        cv2.waitKey(1000)
-        cv2.waitKey()
+        # cv2.imshow("partial image", img)
+        # cv2.waitKey(1000)
+        # cv2.waitKey()
 
         # print("target from custom_dataset.py")
         # print(target)
