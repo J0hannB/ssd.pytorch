@@ -150,8 +150,6 @@ class CustomDetection(data.Dataset):
 
         img_id = self.ids[index]
 
-
-
         # print(img_id)
         # target = ET.parse(self._annopath % img_id).getroot()
         target = list()
@@ -213,19 +211,19 @@ class CustomDetection(data.Dataset):
             # print(box)
             # print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
             if x1 <= xMin:
-                if x2 < xMin:
+                if x2 <= xMin:
                     continue
                 x1 = xMin
             if y1 <= yMin:
-                if y2 < yMin:
+                if y2 <= yMin:
                     continue
                 y1 = yMin
             if x2 >= xMax:
-                if x1 > xMax:
+                if x1 >= xMax:
                     continue
                 x2 = xMax
             if y2 >= yMax:
-                if y1 > yMax:
+                if y1 >= yMax:
                     continue
                 y2 = yMax
 
