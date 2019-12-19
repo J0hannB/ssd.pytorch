@@ -229,13 +229,17 @@ class CustomDetection(data.Dataset):
 
 
 
-            # print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
+            print("(%f, %f) (%f, %f)" % (x1, y1, x2, y2))
+            box[0] = (x1-xMin) / (xMax-xMin)
+            box[1] = (y1-yMin) / (yMax-yMin)
+            box[2] = (x2-xMin) / (xMax-xMin)
+            box[3] = (y2-yMin) / (yMax-yMin)
             # cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0,0,255), 2)
             goodTargets.append(box)
 
         if len(goodTargets) == 0:
             # print("Appending false target to targetless image")
-            goodTargets.append([0.0,0.0,1.0,1.0,0.0])
+            goodTargets.append([0.0,0.0,1.0/width,1.0/height,0.0])
             # goodTargets.append([0.0,0.0,0.0,0.0,0.0])
 
         target = goodTargets
@@ -244,15 +248,21 @@ class CustomDetection(data.Dataset):
 
         img = img[yMin:yMax, xMin:xMax]
 
+        # for t in target:
+        #     cv2.rectangle(img, (int(t[0]*width//2), int(t[1]*height//2)), (int(t[2]*width//2), int(t[3]*height//2)), (0,255,255), 2)
+
+
         # print(img.shape)
 
         self.quadrantIdx += 1
         self.quadrantIdx %= 4
 
-        # cv2.imshow("partial image", img)
-        # cv2.waitKey(1000)
-        # cv2.waitKey()
+        cv2.imshow("partial image", img)
+        cv2.waitKey(1000)
+        cv2.waitKey()
 
+        # print("target from custom_dataset.py")
+        # print(target)
 
 
         if self.transform is not None:
@@ -268,8 +278,6 @@ class CustomDetection(data.Dataset):
 
         # print("updated: " + str(self.quadrantIdx))
 
-        # print("target from custom_dataset.py")
-        # print(target)
 
         im = torch.from_numpy(img).permute(2, 0, 1)
         # print(im)
