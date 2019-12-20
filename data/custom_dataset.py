@@ -116,14 +116,16 @@ class CustomDetection(data.Dataset):
         self._imgpath = osp.join(root, '%s.jpg')
         self.name = 'Custom'
 
-        self.quadrantIdx = 0
-        self.lastImgIdx= None
-
         self.ids = list()
         files = os.listdir(root)
         for file in files:
             if osp.splitext(file)[1] == '.jpg':
-                self.ids.append(osp.splitext(file)[0])
+                # 4 quadrants for each image
+                self.ids.append([osp.splitext(file)[0], 0])
+                self.ids.append([osp.splitext(file)[0], 1])
+                self.ids.append([osp.splitext(file)[0], 2])
+                self.ids.append([osp.splitext(file)[0], 3])
+
 
         print(self.ids)
 
@@ -143,12 +145,8 @@ class CustomDetection(data.Dataset):
 
     def pull_item(self, index):
 
-        if self.quadrantIdx == 0:
-            self.lastImgIdx = index
-        else:
-            index = self.lastImgIdx
-
-        img_id = self.ids[index]
+        img_id = self.ids[index][0]
+        quadrant_idx = self.ids[index][1]
 
         # print(img_id)
         # target = ET.parse(self._annopath % img_id).getroot()
@@ -172,25 +170,25 @@ class CustomDetection(data.Dataset):
         # print(height//2)
         # print(img.shape)
 
-        # print(self.quadrantIdx)
+        # print(quadrant_idx)
 
 
-        if self.quadrantIdx == 0:
+        if quadrant_idx == 0:
             yMin = 0
             yMax = height//2
             xMin = 0
             xMax = width//2
-        if self.quadrantIdx == 1:
+        if quadrant_idx == 1:
             yMin = 0
             yMax = height//2
             xMin = width//2
             xMax = width
-        if self.quadrantIdx == 2:
+        if quadrant_idx == 2:
             yMin = height//2
             yMax = height
             xMin = 0
             xMax = width//2
-        if self.quadrantIdx == 3:
+        if quadrant_idx == 3:
             yMin = height//2
             yMax = height
             xMin = width//2
@@ -254,9 +252,6 @@ class CustomDetection(data.Dataset):
 
         # print(img.shape)
 
-        self.quadrantIdx += 1
-        self.quadrantIdx %= 4
-
         # cv2.imshow("partial image", img)
         # cv2.waitKey(1000)
         # cv2.waitKey()
@@ -276,7 +271,7 @@ class CustomDetection(data.Dataset):
         # print(type(width))
         # print(type(height))
 
-        # print("updated: " + str(self.quadrantIdx))
+        # print("updated: " + str(quadrant_idx))
 
 
         im = torch.from_numpy(img).permute(2, 0, 1)
@@ -295,7 +290,7 @@ class CustomDetection(data.Dataset):
         Return:
             PIL img
         '''
-        img_id = self.ids[index]
+        img_id = self.ids[index][0]
         return cv2.imread(self._imgpath % img_id, cv2.IMREAD_COLOR)
 
     def pull_anno(self, index):
@@ -310,7 +305,7 @@ class CustomDetection(data.Dataset):
             list:  [img_id, [(label, bbox coords),...]]
                 eg: ('001718', [('dog', (96, 13, 438, 332))])
         '''
-        img_id = self.ids[index]
+        img_id = self.ids[index][0]
         # anno = ET.parse(self._annopath % img_id).getroot()
         anno = list()
         with open(self._annopath % img_id) as annoFile:

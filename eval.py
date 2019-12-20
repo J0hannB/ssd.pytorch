@@ -174,14 +174,16 @@ def write_voc_results_file(all_boxes, dataset):
         print('Writing {:s} VOC results file'.format(cls))
         filename = get_voc_results_file_template(set_type, cls)
         with open(filename, 'wt') as f:
-            for im_ind, index in enumerate(dataset.ids):
+            for im_ind, id_list in enumerate(dataset.ids):
+                index = id_list[0]
+                quadrant = id_list[1]
                 dets = all_boxes[cls_ind+1][im_ind]
                 if dets == []:
                     continue
                 # the VOCdevkit expects 1-based indices
                 for k in range(dets.shape[0]):
-                    f.write('{:s} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                            format(index, dets[k, -1],
+                    f.write('{:s} {:d} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                            format(index, quadrant, dets[k, -1],
                                    dets[k, 0] + 1, dets[k, 1] + 1,
                                    dets[k, 2] + 1, dets[k, 3] + 1))
 
@@ -342,8 +344,9 @@ cachedir: Directory for caching the annotations
         splitlines = [x.strip().split(' ') for x in lines]
         print(splitlines)
         image_ids = [x[0] for x in splitlines]
-        confidence = np.array([float(x[1]) for x in splitlines])
-        BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+        quadrants = [int(x[1]) for x in splitlines]
+        confidence = np.array([float(x[2]) for x in splitlines])
+        BB = np.array([[float(z) for z in x[3:]] for x in splitlines])
 
         print(BB)
         # print(image_ids)
@@ -353,7 +356,8 @@ cachedir: Directory for caching the annotations
         sorted_scores = np.sort(-confidence)
         BB = BB[sorted_ind, :]
         image_ids = [image_ids[x] for x in sorted_ind]
-        # print(image_ids)
+        quadrants = [quadrants[x] for x in sorted_ind]
+        print(image_ids)
 
         # go down dets and mark TPs and FPs
         nd = len(image_ids)
@@ -363,16 +367,35 @@ cachedir: Directory for caching the annotations
         for imagename in imagenames:
             image_id = os.path.splitext(os.path.split(imagename)[1])[0]
             img = cv2.imread(imagename)
-            print(img.shape)
 
+            height, width, channels = img.shape
+            print(img.shape)
 
             for d in range(nd):
                 # print(image_id)
                 # print(image_ids[d])
-                if image_ids[d] == image_id and confidence[d] > args.confidence_threshold:
-                    bb = BB[d, :]
-                    print(bb)
-                    cv2.rectangle(img, (int(bb[0]), int(bb[1])), (int(bb[2]), int(bb[3])), (0,0,255), 2)
+                if image_ids[d] == image_id:
+                    quadrant = quadrants[d]
+                    print(quadrant)
+                    if confidence[d] > args.confidence_threshold and quadrant == 0:
+                        bb = BB[d, :]
+                        print(bb)
+
+                        # if quadrant == 1:
+                        #     bb[0] += width//2
+                        #     bb[2] += widht//2
+                        # elif quadrant == 2:
+                        #     bb[1] += height//2
+                        #     bb[3] += height//2
+                        # elif quadrant == 3:
+                        #     bb[0] += width//2
+                        #     bb[2] += widht//2
+                        #     bb[1] += height//2
+                        #     bb[3] += height//2
+
+
+
+                        cv2.rectangle(img, (int(bb[0]/2), int(bb[1]/2)), (int(bb[2]/2), int(bb[3]/2)), (0,0,255), 2)
 
             cv2.imshow("image", img)
             cv2.waitKey()
@@ -431,6 +454,115 @@ cachedir: Directory for caching the annotations
 
     return rec, prec, ap
 
+def test_net_custom(save_folder, net, cuda, dataset, transform, top_k, imsize=300, thresh=0.05):
+
+    quadrants = 4
+    num_images = len(dataset) // quadrants
+
+    idq = dataset.ids
+
+    for i in range(num_images):
+        partial_imgs = []
+        partial_gts = []
+        partial_detections = []
+
+        for j in range(quadrants):
+            im, gt, h, w = dataset.pull_item(i*quadrants+j)
+
+            x = Variable(im.unsqueeze(0))
+            if args.cuda:
+                x = x.cuda()
+            detections = net(x).data
+
+            im = im.numpy().transpose(1,2,0)
+            im = np.ascontiguousarray(im, dtype=np.uint8)
+            partial_imgs.append(im)
+            partial_gts.append(gt)
+            partial_detections.append(detections)
+
+        img_id = idq[i*quadrants][0]
+
+        img_path = os.path.join(args.voc_root, img_id + '.jpg')
+
+        img = cv2.imread(img_path)
+
+        h, w, c = img.shape
+
+        # skip j = 0, because it's the background class
+        for j in range(len(partial_detections)):
+            detection = partial_detections[j]
+            gt = partial_gts[j]
+            quad = j
+
+            for bb in gt:
+                bb[0] *= w // 2
+                bb[2] *= w // 2
+                bb[1] *= h // 2
+                bb[3] *= h // 2
+
+                if quad == 1:
+                    bb[0] += w // 2
+                    bb[2] += w // 2
+                elif quad == 2:
+                    bb[1] += h // 2
+                    bb[3] += h // 2
+                elif quad == 3:
+                    bb[1] += h // 2
+                    bb[3] += h // 2
+                    bb[0] += w // 2
+                    bb[2] += w // 2
+
+
+                cv2.rectangle(img, (int(bb[0]), int(bb[1])), (int(bb[2]), int(bb[3])), (0,255,255), 2)
+
+
+
+
+            for k in range(1, detections.size(1)):
+                dets = detection[0, k, :]
+                mask = dets[:, 0].gt(0.).expand(5, dets.size(0)).t()
+                dets = torch.masked_select(dets, mask).view(-1, 5)
+                if dets.size(0) == 0:
+                    continue
+                boxes = dets[:, 1:]
+                boxes[:, 0] *= w // 2
+                boxes[:, 2] *= w // 2
+                boxes[:, 1] *= h // 2
+                boxes[:, 3] *= h // 2
+
+                if quad == 1:
+                    boxes[:, 0] += w // 2
+                    boxes[:, 2] += w // 2
+                elif quad == 2:
+                    boxes[:, 1] += h // 2
+                    boxes[:, 3] += h // 2
+                elif quad == 3:
+                    boxes[:, 1] += h // 2
+                    boxes[:, 3] += h // 2
+                    boxes[:, 0] += w // 2
+                    boxes[:, 2] += w // 2
+
+
+                scores = dets[:, 0].cpu().numpy()
+
+                # print(scores)
+                # print("drawing detections")
+
+                for k in range(boxes.size(1)):
+
+                    if scores[k] >= args.confidence_threshold:
+                        box = boxes[k, :]
+                        print(box)
+
+                        # cv2.rectangle(img, (0, 0), (5, 5), (0,0,255), 2)
+                        cv2.rectangle(img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0,0,255), 2)
+
+
+        cv2.imshow("full", img)
+        cv2.waitKey()
+
+
+
 
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
              im_size=300, thresh=0.05):
@@ -450,15 +582,15 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         im, gt, h, w = dataset.pull_item(i)
         print(gt)
 
-        print(im.dtype)
+        # print(im.dtype)
 
         img = im.numpy().transpose(1,2,0)
-        print(img.shape)
+        # print(img.shape)
         # print(img)
         img = np.ascontiguousarray(img, dtype=np.uint8)
-        print(img.shape)
-        cv2.imshow("image", img)
-        cv2.waitKey()
+        # print(img.shape)
+        # cv2.imshow("image", img)
+        # cv2.waitKey()
 
         x = Variable(im.unsqueeze(0))
         if args.cuda:
@@ -469,12 +601,12 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         detect_time = _t['im_detect'].toc(average=False)
 
 
-        print("drawing ground truth")
+        # print("drawing ground truth")
 
-        for j in range(len(gt)):
-            box = gt[j, 0:4]
-            print(box)
-            cv2.rectangle(img, (int(box[0]*300), int(box[1]*300)), (int(box[2]*300), int(box[3]*300)), (255,0,255), 2)
+        # for j in range(len(gt)):
+        #     box = gt[j, 0:4]
+        #     print(box)
+        #     cv2.rectangle(img, (int(box[0]*300), int(box[1]*300)), (int(box[2]*300), int(box[3]*300)), (255,0,255), 2)
 
 
 
@@ -494,14 +626,17 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             cls_dets = np.hstack((boxes.cpu().numpy(),
                                   scores[:, np.newaxis])).astype(np.float32,
                                                                  copy=False)
-            print("drawing detections")
+            # print(scores)
+            # print("drawing detections")
 
-            for k in range(boxes.size(1)):
-                box = boxes[k, :]
-                print(box)
+            # for k in range(boxes.size(1)):
 
-                # cv2.rectangle(img, (0, 0), (5, 5), (0,0,255), 2)
-                cv2.rectangle(img, (int(box[0]*300.0/w), int(box[1]*300.0/h)), (int(box[2]*300.0/w), int(box[3]*300.0/h)), (0,0,255), 2)
+            #     if scores[k] >= args.confidence_threshold:
+            #         box = boxes[k, :]
+            #         print(box)
+
+            #         # cv2.rectangle(img, (0, 0), (5, 5), (0,0,255), 2)
+            #         cv2.rectangle(img, (int(box[0]*300.0/w), int(box[1]*300.0/h)), (int(box[2]*300.0/w), int(box[3]*300.0/h)), (0,0,255), 2)
 
             all_boxes[j][i] = cls_dets
 
@@ -512,8 +647,8 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
             #     cv2.rectangle(img, (int(bb[0]), int(bb[1])), (int(bb[2]), int(bb[3])), (0,0,255), 2)
 
 
-        cv2.imshow("image", img)
-        cv2.waitKey()
+        # cv2.imshow("image", img)
+        # cv2.waitKey()
       
         # image_id = os.path.splitext(os.path.split(imagename)[1])[0]
 
@@ -559,6 +694,6 @@ if __name__ == '__main__':
         net = net.cuda()
         cudnn.benchmark = True
     # evaluation
-    test_net(args.save_folder, net, args.cuda, dataset,
+    test_net_custom(args.save_folder, net, args.cuda, dataset,
              BaseTransform(net.size, dataset_mean), args.top_k, 300,
              thresh=args.confidence_threshold)
