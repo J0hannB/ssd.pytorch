@@ -261,7 +261,11 @@ def train():
 
             if args.test_root != "":
                 print("Evaulating weights against test dataset")
-                measure_iou(net, test_dataset)
+                iou_25, iou_50 = measure_iou(ssd_net, test_dataset)
+                print("IOU @ 50\% conf: {}".format(iou_50) )
+                print("IOU @ 25\% conf: {}".format(iou_25) )
+                run.log("iou_25", iou_25.item())
+                run.log("iou_50", iou_50.item())
 
             print('Saving state, iter:', iteration)
             model_name = 'ssd300_COCO_' + repr(iteration) + '.pth'
@@ -298,6 +302,9 @@ def measure_iou(net, test_dataset):
         dets = out[0, 1, :, 1:5]
         conf = out[0, 1, :, 0]
 
+        if args.cuda:
+            dets = dets.cpu()
+            conf = conf.cpu()
 
 
         i50, u50 = get_intersection_union(gts, dets, conf, 0.50)
@@ -342,9 +349,9 @@ def measure_iou(net, test_dataset):
         iou_25 = 0
     else:
         iou_25 = intersection_25/union_25
+	
 
-    print("IOU @ 50\% conf: {}".format(iou_50) )
-    print("IOU @ 25\% conf: {}".format(iou_25) )
+    return iou_25, iou_50
 
 def get_intersection_union(gts, dets, conf, conf_thresh):
     # print("intersection")
