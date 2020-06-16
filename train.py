@@ -1,6 +1,7 @@
 from data import *
-from utils.augmentations import SSDAugmentation
+from utils.augmentations import SSDAugmentation, SSDAugmentationLight
 from layers.modules import MultiBoxLoss
+from layers.box_utils import match
 from ssd import build_ssd
 import os
 import sys
@@ -21,6 +22,8 @@ from azureml.core import Workspace
 from azureml.core import Experiment
 
 VOC_ROOT = ''
+torch.set_printoptions(threshold=5000)
+# torch.set_printoptions(profile="full")
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -31,8 +34,10 @@ parser = argparse.ArgumentParser(
 train_set = parser.add_mutually_exclusive_group()
 parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'CUSTOM'],
                     type=str, help='VOC, COCO or CUSTOM')
-parser.add_argument('--dataset_root', default=VOC_ROOT,
+parser.add_argument('--train_root', default=VOC_ROOT,
                     help='Dataset root directory path')
+parser.add_argument('--test_root', default="",
+                    help='Test data root directory path')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
 parser.add_argument('--batch_size', default=32, type=int,
@@ -81,31 +86,41 @@ experiment = Experiment(workspace=ws, name='ssd-train-2')
 
 def train():
     if args.dataset == 'COCO':
-        if args.dataset_root == VOC_ROOT:
+        if args.train_root == VOC_ROOT:
             if not os.path.exists(COCO_ROOT):
-                parser.error('Must specify dataset_root if specifying dataset')
-            print("WARNING: Using default COCO dataset_root because " +
-                  "--dataset_root was not specified.")
-            args.dataset_root = COCO_ROOT
+                parser.error('Must specify train_root if specifying dataset')
+            print("WARNING: Using default COCO train_root because " +
+                  "--train_root was not specified.")
+            args.train_root = COCO_ROOT
         cfg = coco
-        dataset = COCODetection(root=args.dataset_root,
+        dataset = COCODetection(root=args.train_root,
                                 transform=SSDAugmentation(cfg['min_dim'],
                                                           MEANS))
     elif args.dataset == 'VOC':
-        if args.dataset_root == COCO_ROOT:
-            parser.error('Must specify dataset if specifying dataset_root')
+        if args.train_root == COCO_ROOT:
+            parser.error('Must specify dataset if specifying train_root')
         cfg = voc
-        dataset = VOCDetection(root=args.dataset_root,
+        dataset = VOCDetection(root=args.train_root,
                                transform=SSDAugmentation(cfg['min_dim'],
                                                          MEANS))
 
     elif args.dataset == 'CUSTOM':
-        if args.dataset_root == VOC_ROOT:
-            parser.error('Must specify dataset_root for custom datasets')
+
+        # Init train dataset
+        if args.train_root == VOC_ROOT:
+            parser.error('Must specify train_root for custom datasets')
         cfg = custom
-        dataset = CustomDetection(root=args.dataset_root,
-                                transform=SSDAugmentation(cfg['min_dim'], 
+        dataset = CustomDetection(root=args.train_root,
+                                transform=SSDAugmentationLight(cfg['min_dim'], 
                                                          MEANS))
+
+        # Init test dataset
+        if(args.test_root == ""):
+            print("No test dataset specified")
+        else:
+            test_dataset = CustomDetection(root=args.test_root,
+                                    transform=SSDAugmentationLight(cfg['min_dim'], 
+                                                            MEANS))
 
 
 
@@ -240,20 +255,136 @@ def train():
             update_vis_plot(iteration, loss_l.item(), loss_c.item(),
                             iter_plot, epoch_plot, 'append')
 
-        if iteration != 0 and iteration % 500 == 0:
+        # TODO: remove second line and uncomment first
+        # if iteration != 0 and iteration % 500 == 0:
+        if iteration % 500 == 0:
+
+            if args.test_root != "":
+                print("Evaulating weights against test dataset")
+                measure_iou(net, test_dataset)
+
             print('Saving state, iter:', iteration)
             model_name = 'ssd300_COCO_' + repr(iteration) + '.pth'
             file_name = os.path.join(args.save_folder, model_name)
             torch.save(ssd_net.state_dict(), file_name)
             run.upload_file(name=model_name, path_or_stream=file_name)
 
-
-       # if iteration != 0 and iteration % 50 == 0:
-       #     torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_last.pth'))
+        # if iteration != 0 and iteration % 50 == 0:
+        #     torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_last.pth'))
 
     torch.save(ssd_net.state_dict(),
                args.save_folder + '' + args.dataset + '.pth')
 
+def measure_iou(net, test_dataset):
+
+    num_images = len(test_dataset)
+
+    intersection_50 = 0
+    intersection_25 = 0
+    union_50 = 0
+    union_25 = 0
+
+    for i in range(num_images):
+        im, gts, h, w = test_dataset.pull_item(i)
+        x = Variable(im.unsqueeze(0))
+        if args.cuda:
+            x = x.cuda()
+        out = net(x)
+        # Apparently I need to call detect() to get output in a format I understand
+        out = net.detect(out[0], net.softmax(out[1]), out[2].type(type(x.data))).data
+        # dets = out[0].detach().numpy()
+        # conf = out[1].detach().numpy()
+
+        dets = out[0, 1, :, 1:5]
+        conf = out[0, 1, :, 0]
+
+
+
+        i50, u50 = get_intersection_union(gts, dets, conf, 0.50)
+        i25, u25 = get_intersection_union(gts, dets, conf, 0.25)
+        intersection_50 += i50
+        union_50 += u50
+        intersection_25 += i25
+        union_25 += u25
+
+        # if u25 != 0:
+        #     print("individual iou: {}".format(i25/u25))
+        # else:
+        #     print("individual iou: {}".format(0))
+
+        # img = im.numpy().transpose(1,2,0)
+        # # print(img.shape)
+        # # print(img)
+        # img = np.ascontiguousarray(img, dtype=np.uint8)
+        # h, w, ch = img.shape
+        # r, g, b = cv.split(img)
+        # img = cv.merge((b, g, r))
+
+        # for i in range(len(dets[:, 0])):
+        #     det = dets[i]
+        #     c = conf[i]
+
+        #     if(c > 0.25):
+        #         cv2.rectangle(img, (int(det[0]*w), int(det[1]*h)), (int(det[2]*w), int(det[3]*h)), (0,0,255), 2)
+
+        # for gt in gts:
+        #     cv2.rectangle(img, (int(gt[0]*w), int(gt[1]*h)), (int(gt[2]*w), int(gt[3]*h)), (0,255,255), 2)
+
+        # cv.imshow("img", img)
+        # cv.waitKey()
+
+    if union_50 == 0:
+        iou_50 = 0
+    else:
+        iou_50 = intersection_50/union_50
+
+    if union_25 == 0:
+        iou_25 = 0
+    else:
+        iou_25 = intersection_25/union_25
+
+    print("IOU @ 50\% conf: {}".format(iou_50) )
+    print("IOU @ 25\% conf: {}".format(iou_25) )
+
+def get_intersection_union(gts, dets, conf, conf_thresh):
+    # print("intersection")
+    intersection = 0
+    for i in range(len(dets[:,0])):
+        detbb = dets[i]
+
+        # print(conf)
+
+        if conf[i] > conf_thresh:
+            for gtbb in gts:
+                # print(gtbb)
+                # print(detbb)
+
+                ixmin = np.maximum(gtbb[0], detbb[0])
+                iymin = np.maximum(gtbb[1], detbb[1])
+                ixmax = np.minimum(gtbb[2], detbb[2])
+                iymax = np.minimum(gtbb[3], detbb[3])
+                iw = np.maximum(ixmax - ixmin, 0.)
+                ih = np.maximum(iymax - iymin, 0.)
+
+                intersection += iw * ih
+
+    # print("individual inter: {}".format(intersection))
+    
+
+    union = 0
+    for i in range(len(dets[:,0])):
+        detbb = dets[i]
+        if conf[i] > conf_thresh:
+                union += ((detbb[2] - detbb[0]) * (detbb[3] - detbb[1]))
+
+    for gtbb in gts:
+        union += ((gtbb[2] - gtbb[0]) * (gtbb[3] - gtbb[1]))
+
+    union -= intersection
+
+    # print("individual union: {}".format(union))
+
+    return intersection, union
 
 def adjust_learning_rate(optimizer, gamma, step):
     """Sets the learning rate to the initial LR decayed by 10 at every

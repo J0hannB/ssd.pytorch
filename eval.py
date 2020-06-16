@@ -542,7 +542,6 @@ def test_net_custom(save_folder, net, cuda, dataset, transform, top_k, imsize=30
                     boxes[:, 0] += w // 2
                     boxes[:, 2] += w // 2
 
-
                 scores = dets[:, 0].cpu().numpy()
 
                 # print(scores)

@@ -130,8 +130,7 @@ class CustomDetection(data.Dataset):
                 self.ids.append([osp.splitext(file)[0], 2])
                 self.ids.append([osp.splitext(file)[0], 3])
 
-
-        #print(self.ids)
+        print("Loaded {} images into dataset".format(len(self.ids)))
 
         
         # for (year, name) in image_sets:
