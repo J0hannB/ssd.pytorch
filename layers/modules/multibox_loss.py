@@ -63,6 +63,8 @@ class MultiBoxLoss(nn.Module):
         num_priors = (priors.size(0))
         num_classes = self.num_classes
 
+        # print(loc_data)
+
         # match priors (default boxes) and ground truth boxes
         loc_t = torch.Tensor(num, num_priors, 4)
         conf_t = torch.LongTensor(num, num_priors)
@@ -90,9 +92,11 @@ class MultiBoxLoss(nn.Module):
         # Shape: [batch,num_priors,4]
         # print(loc_t)
         pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
+        # print(pos_idx)
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
         # print(loc_p)
+        # print(conf_t)
         # print(loc_t)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
         # print(loss_l)

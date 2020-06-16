@@ -40,8 +40,9 @@ class YOLOAnnotationTransform(object):
             bbox = row[1:5]
             x = float(bbox[0])
             y = float(bbox[1])
-            w = float(bbox[2])
-            h = float(bbox[3])
+            # due to my conversion script w and h can sometimes be negative. Account for that here with abs()
+            w = abs(float(bbox[2]))
+            h = abs(float(bbox[3]))
             bboxf = list()
             bboxf.append(x-w/2)
             bboxf.append(y-h/2)
@@ -127,7 +128,8 @@ class CustomDetection(data.Dataset):
                 self.ids.append([osp.splitext(file)[0], 3])
 
 
-        print(self.ids)
+        # print(self.ids)
+        print("Loaded {} images into dataset".format(len(self.ids)))
 
         
         # for (year, name) in image_sets:
