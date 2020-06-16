@@ -16,6 +16,10 @@ import numpy as np
 import argparse
 import cv2 as cv
 
+#Azure
+from azureml.core import Workspace
+from azureml.core import Experiment
+
 VOC_ROOT = ''
 
 def str2bool(v):
@@ -71,6 +75,9 @@ else:
 if not os.path.exists(args.save_folder):
     os.mkdir(args.save_folder)
 
+# Azure
+ws = Workspace.from_config()
+experiment = Experiment(workspace=ws, name='ssd-train-2')
 
 def train():
     if args.dataset == 'COCO':
@@ -162,6 +169,9 @@ def train():
                                   num_workers=args.num_workers,
                                   shuffle=True, collate_fn=detection_collate,
                                   pin_memory=True)
+    
+    run = experiment.start_logging()
+    
     # create batch iterator
     batch_iterator = iter(data_loader)
     for iteration in range(args.start_iter, cfg['max_iter']):
@@ -193,6 +203,7 @@ def train():
             with torch.no_grad():
                 targets = [Variable(ann) for ann in targets]
 
+
         # for img in images:
         #     img = img.numpy().transpose(1,2,0)
         #     img = img.astype(np.uint8)
@@ -215,6 +226,12 @@ def train():
         loc_loss += loss_l.item()
         conf_loss += loss_c.item()
 
+        #Azure
+        run.log("iter", iteration)
+        run.log("loss", loss.item())
+        run.log("loss_l", loss_l.item())
+        run.log("loss_c", loss_c.item())
+
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
             print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
@@ -225,12 +242,14 @@ def train():
 
         if iteration != 0 and iteration % 500 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_' +
-                       repr(iteration) + '.pth'))
+            model_name = 'ssd300_COCO_' + repr(iteration) + '.pth'
+            file_name = os.path.join(args.save_folder, model_name)
+            torch.save(ssd_net.state_dict(), file_name)
+            run.upload_file(name=model_name, path_or_stream=file_name)
 
 
-        if iteration != 0 and iteration % 50 == 0:
-            torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_last.pth'))
+       # if iteration != 0 and iteration % 50 == 0:
+       #     torch.save(ssd_net.state_dict(), os.path.join(args.save_folder, 'ssd300_COCO_last.pth'))
 
     torch.save(ssd_net.state_dict(),
                args.save_folder + '' + args.dataset + '.pth')

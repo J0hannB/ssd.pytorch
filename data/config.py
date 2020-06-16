@@ -43,7 +43,7 @@ coco = {
 
 custom = {
     'num_classes': 2,
-    'lr_steps': (80000, 100000, 120000),
+    'lr_steps': (20000, 50000, 80000),
     'max_iter': 120000,
     'feature_maps': [38, 19, 10, 5, 3, 1],
     'min_dim': 300,

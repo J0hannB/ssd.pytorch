@@ -40,14 +40,18 @@ class YOLOAnnotationTransform(object):
             bbox = row[1:5]
             x = float(bbox[0])
             y = float(bbox[1])
-            w = float(bbox[2])
-            h = float(bbox[3])
+            # due to my conversion script w and h can sometimes be negative. Account for that here with abs()
+            w = abs(float(bbox[2]))
+            h = abs(float(bbox[3]))
             bboxf = list()
             bboxf.append(x-w/2)
             bboxf.append(y-h/2)
             bboxf.append(x+w/2)
             bboxf.append(y+h/2)
 
+            #for i in range(4):
+            #    if bboxf[i] > 1.0 or bboxf[i] < 0.0:
+            #        print("Invalid gt dimension: {}".format(bboxf[i]))
             # for dim in bbox:
             #     dim = float(dim)
             #     bboxf.append(dim)
@@ -127,7 +131,7 @@ class CustomDetection(data.Dataset):
                 self.ids.append([osp.splitext(file)[0], 3])
 
 
-        print(self.ids)
+        #print(self.ids)
 
         
         # for (year, name) in image_sets:
@@ -157,6 +161,21 @@ class CustomDetection(data.Dataset):
 
 
         img = cv2.imread(self._imgpath % img_id)
+        
+        if img is None:
+            img_id = self.ids[index+1][0]
+            quadrant_idx = self.ids[index+1][1]
+
+            # print(img_id)
+            # target = ET.parse(self._annopath % img_id).getroot()
+            target = list()
+            with open(self._annopath % img_id) as annoFile:
+                for line in annoFile:
+                    target.append(line)
+
+
+            img = cv2.imread(self._imgpath % img_id)
+#            return None, None, None, None
 
         height, width, channels = img.shape
 
@@ -240,8 +259,21 @@ class CustomDetection(data.Dataset):
             goodTargets.append([0.0,0.0,1.0/width,1.0/height,0.0])
             # goodTargets.append([0.0,0.0,0.0,0.0,0.0])
 
+        for t in goodTargets:
+            if t[0] > 1.0 or t[0] < 0.0:
+                print("invalid target in image " + img_id)
+                print(t)
+            if t[1] > 1.0 or t[1] < 0.0:
+                print("invalid target in image " + img_id)
+                print(t)
+            if t[2] > 1.0 or t[2] < 0.0:
+                print("invalid target in image " + img_id)
+                print(t)
+            if t[3] > 1.0 or t[3] < 0.0:
+                print("invalid target in image " + img_id)
+                print(t)
         target = goodTargets
-
+        # print(target)
         # cv2.imshow("full Image", img)
 
         img = img[yMin:yMax, xMin:xMax]
